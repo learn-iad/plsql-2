@@ -145,9 +145,11 @@
       border:1px solid rgba(74,222,128,.08);
     }
     .checklist-groups li.ok{border-color:rgba(74,222,128,.28);color:#d1fae5}
-    .checklist-groups li.fail{color:#94a3b8}
+    .checklist-groups li.fail{color:#94a3b8;cursor:help;transition:background .15s,border-color .15s,color .15s}
+    .checklist-groups li.fail:hover{background:rgba(251,191,36,.08);border-color:rgba(251,191,36,.28);color:#fde68a}
     .checklist-groups .chk-icon{font-size:1.15rem;flex-shrink:0;width:1.5em;text-align:center}
     .checklist-groups li.ok .chk-icon{color:#4ade80}
+    .code-backdrop .ln-chk-hl{background:rgba(251,191,36,.22);border-radius:2px;box-shadow:inset 0 0 0 1px rgba(251,191,36,.35)}
     .tab-pane[hidden]{display:none}
     .panel-head-editor{display:flex;align-items:center;justify-content:space-between;gap:8px}
     .btn-icon{
@@ -707,6 +709,7 @@
   </div>
 
   <script src="js/util.js"></script>
+  <script src="js/locator.js"></script>
   <script src="js/oracle-errors.js"></script>
   <script src="js/checker.js"></script>
   <script src="js/history.js"></script>
@@ -738,6 +741,8 @@
     var activeTab = 'checklist';
     var previewTimer = null;
     var valTimer = null;
+    var lastPreviewCriteria = null;
+    var checklistHighlightLines = {};
     var DRAFT_KEY = 'plsql_trainer_v1_draft';
     var PROGRESS_KEY = 'plsql_trainer_v2_join_progress';
     var STUDENT_KEY = 'plsql_trainer_v1_student';
@@ -853,14 +858,29 @@
       return getChecklistGroups(task).map(function(group){
         var items = group.ids.map(function(id){ return byId[id]; }).filter(Boolean);
         var pass = items.length > 0 && items.every(function(c){ return c.pass; });
-        return { label: group.label, pass: pass };
+        return { label: group.label, pass: pass, ids: group.ids.slice() };
       });
+    }
+
+    function clearChecklistHighlight(){
+      checklistHighlightLines = {};
+      updateValidation();
+    }
+
+    function applyChecklistHighlight(ids){
+      if (!lastPreviewCriteria || !sqlInput.value.trim()){
+        clearChecklistHighlight();
+        return;
+      }
+      var ranges = CriterionLocator.locateFailed(sqlInput.value, ids, lastPreviewCriteria);
+      checklistHighlightLines = CriterionLocator.rangesToLineSet(ranges);
+      updateValidation();
     }
 
     function renderChecklist(task, criteria){
       var groups = criteria
         ? buildChecklistItems(task, criteria)
-        : getChecklistGroups(task).map(function(g){ return { label: g.label, pass: false }; });
+        : getChecklistGroups(task).map(function(g){ return { label: g.label, pass: false, ids: g.ids.slice() }; });
       var passed = groups.filter(function(g){ return g.pass; }).length;
       var total = groups.length;
       updateChecklistProgress(passed, total);
@@ -868,12 +888,13 @@
       var html = '<div class="checklist-header"><b>' + passed + '</b> из ' + total + ' блоков</div>';
       html += '<ul class="checklist-groups">';
       groups.forEach(function(g){
-        html += '<li class="' + (g.pass ? 'ok' : 'fail') + '">' +
+        var attrs = g.pass ? '' : ' data-ids="' + esc(g.ids.join(',')) + '" title="Наведите — подсветка в коде"';
+        html += '<li class="' + (g.pass ? 'ok' : 'fail') + '"' + attrs + '>' +
           '<span class="chk-icon">' + (g.pass ? '✓' : '○') + '</span>' +
           '<span>' + esc(g.label) + '</span></li>';
       });
       html += '</ul>';
-      html += '<p class="checklist-hint">Обновляется при редактировании. «Проверить» — официальная попытка в историю.</p>';
+      html += '<p class="checklist-hint">Обновляется при редактировании. Наведите на невыполненный пункт — подсветится место в коде. «Проверить» — официальная попытка в историю.</p>';
       checklistBody.innerHTML = html;
     }
 
@@ -885,10 +906,17 @@
       var task = STEPS[taskStep];
       if (task.isPrep) return;
       if (!sqlInput.value.trim()){
+        lastPreviewCriteria = null;
+        clearChecklistHighlight();
         renderChecklistEmpty(task);
         return;
       }
-      renderChecklist(task, Checker.run(sqlInput.value, task).criteria);
+      var result = Checker.run(sqlInput.value, task);
+      lastPreviewCriteria = result.criteria;
+      renderChecklist(task, result.criteria);
+      if (checklistBody._hlKey) {
+        applyChecklistHighlight(checklistBody._hlKey.split(','));
+      }
     }
 
     function schedulePreviewAndSave(){
@@ -930,8 +958,12 @@
       var v = SqlUtil.validateCode(code);
       var highlighted = SqlUtil.highlightSql(code);
       codeBackdrop.innerHTML = highlighted.map(function (hl, i) {
-        var cls = v.invalidLines[i + 1] ? ' class="ln-invalid"' : '';
-        return '<span' + cls + '>' + hl + '</span>';
+        var lineNum = i + 1;
+        var cls = [];
+        if (v.invalidLines[lineNum]) cls.push('ln-invalid');
+        if (checklistHighlightLines[lineNum]) cls.push('ln-chk-hl');
+        var attr = cls.length ? ' class="' + cls.join(' ') + '"' : '';
+        return '<span' + attr + '>' + hl + '</span>';
       }).join('\n');
 
       if (v.problems.length){
@@ -1346,6 +1378,26 @@
       updateLineNums();
       scheduleValidation();
       schedulePreviewAndSave();
+    });
+    checklistBody.addEventListener('mousemove', function(e){
+      var li = e.target.closest('.checklist-groups li.fail');
+      if (!li){
+        if (checklistBody._hlKey){
+          checklistBody._hlKey = '';
+          clearChecklistHighlight();
+        }
+        return;
+      }
+      var ids = (li.getAttribute('data-ids') || '').split(',').filter(Boolean);
+      if (!ids.length) return;
+      var key = ids.join(',');
+      if (checklistBody._hlKey === key) return;
+      checklistBody._hlKey = key;
+      applyChecklistHighlight(ids);
+    });
+    checklistBody.addEventListener('mouseleave', function(){
+      checklistBody._hlKey = '';
+      clearChecklistHighlight();
     });
     sqlInput.addEventListener('scroll', syncEditorScroll);
     sqlInput.addEventListener('keydown', function(e){

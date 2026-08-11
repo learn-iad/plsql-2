@@ -418,6 +418,66 @@ var SqlUtil = (function () {
     return code.split('\n').map(function (ln) { return highlightLine(ln); });
   }
 
+  function getBlocksWithLines(code) {
+    var blocks = [];
+    var cur = [];
+    var curStart = 1;
+    code.split('\n').forEach(function (line, i) {
+      var lineNum = i + 1;
+      if (line.trim() === '' && cur.length) {
+        blocks.push({ text: cur.join('\n'), startLine: curStart, endLine: lineNum - 1 });
+        cur = [];
+        curStart = lineNum + 1;
+      } else {
+        if (!cur.length) curStart = lineNum;
+        cur.push(line);
+      }
+    });
+    if (cur.length) {
+      blocks.push({ text: cur.join('\n'), startLine: curStart, endLine: code.split('\n').length });
+    }
+    return blocks.filter(function (b) { return b.text.trim(); });
+  }
+
+  function lineRange(startLine, endLine) {
+    return { start: startLine, end: endLine };
+  }
+
+  function stmtLineRanges(code, pred) {
+    return splitStatementsDetailed(code)
+      .filter(function (s) { return pred(s.text, s); })
+      .map(function (s) {
+        return lineRange(posToLine(code, s.start), posToLine(code, s.end));
+      });
+  }
+
+  function locateBlocksMissingComments(code) {
+    var blocks = splitCodeBlocks(code);
+    var withLines = getBlocksWithLines(code);
+    var sqlIdx = [];
+    blocks.forEach(function (b, i) {
+      if (blockHasSql(b)) sqlIdx.push(i);
+    });
+    var out = [];
+    sqlIdx.forEach(function (i) {
+      if (!blockHasAdjacentComment(blocks, i) && withLines[i]) {
+        out.push(lineRange(withLines[i].startLine, withLines[i].endLine));
+      }
+    });
+    return out;
+  }
+
+  function locateStmtsMissingAdjacentComment(code, stmtPred, commentRe) {
+    return splitStatementsDetailed(code)
+      .filter(function (s) { return stmtPred(s.text, s); })
+      .filter(function (s) {
+        return !commentRe.test(getAdjacentCommentText(code, s.start, s.end));
+      })
+      .map(function (s) {
+        return lineRange(posToLine(code, s.start), posToLine(code, s.end));
+      });
+  }
+
   return {
     stripComments: stripComments,
     normalize: normalize,
@@ -448,6 +508,10 @@ var SqlUtil = (function () {
     hasCrossJoinSyntax: hasCrossJoinSyntax,
     hasUnionSyntax: hasUnionSyntax,
     hasIntersectSyntax: hasIntersectSyntax,
-    highlightSql: highlightSql
+    highlightSql: highlightSql,
+    getBlocksWithLines: getBlocksWithLines,
+    stmtLineRanges: stmtLineRanges,
+    locateBlocksMissingComments: locateBlocksMissingComments,
+    locateStmtsMissingAdjacentComment: locateStmtsMissingAdjacentComment
   };
 })();
