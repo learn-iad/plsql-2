@@ -78,7 +78,7 @@ function doPost(e) {
           ];
         });
         var startRow = attemptsSheet.getLastRow() + 1;
-        attemptsSheet.getRange(startRow, 1, startRow + rows.length - 1, ATTEMPT_HEADERS.length).setValues(rows);
+        attemptsSheet.getRange(startRow, 1, rows.length, ATTEMPT_HEADERS.length).setValues(rows);
       }
     }
 
@@ -128,8 +128,15 @@ function refreshAnalytics_(ss) {
 }
 
 function readTable_(sheet, colCount) {
-  var values = sheet.getRange(2, 1, sheet.getLastRow(), colCount).getValues();
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+  var values = sheet.getRange(2, 1, lastRow - 1, colCount).getValues();
   return values.filter(function (row) { return row[0] || row[2] || row[4]; });
+}
+
+/** Диапазон от (r1,c1) до (r2,c2) включительно — обёртка над getRange. */
+function rng_(sheet, r1, c1, r2, c2) {
+  return sheet.getRange(r1, c1, r2 - r1 + 1, c2 - c1 + 1);
 }
 
 /** Одна «лучшая» сессия на ученика: больше заданий → больше попыток → новее. */
@@ -302,7 +309,7 @@ function writeAnalyticsSheet_(ss, overview, taskStats, studentStats) {
 
   var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'Europe/Moscow', 'dd.MM.yyyy HH:mm:ss');
 
-  sheet.getRange(1, 1, 1, 8).merge()
+  rng_(sheet, 1, 1, 1, 8).merge()
     .setValue('Аналитика PL/SQL тренажёра')
     .setFontSize(14).setFontWeight('bold').setBackground('#1a73e8').setFontColor('#ffffff');
   sheet.getRange(2, 1).setValue('Обновлено: ' + now).setFontStyle('italic').setFontColor('#5f6368');
@@ -320,21 +327,22 @@ function writeAnalyticsSheet_(ss, overview, taskStats, studentStats) {
     overview.avgScore,
     overview.totalChecks
   ];
-  sheet.getRange(5, 1, 5, 8).setValues([kpiHeaders]).setFontWeight('bold').setBackground('#e8f0fe');
-  sheet.getRange(6, 1, 6, 8).setValues([kpiValues]).setBackground('#f8f9fa');
+  rng_(sheet, 5, 1, 5, 8).setValues([kpiHeaders]).setFontWeight('bold').setBackground('#e8f0fe');
+  rng_(sheet, 6, 1, 6, 8).setValues([kpiValues]).setBackground('#f8f9fa');
 
   // —— Задания ——
   var taskStart = 8;
   sheet.getRange(taskStart, 1).setValue('Сложность заданий (сверху — труднее)').setFontWeight('bold');
   var taskHeaders = ['Задание', 'Ср. балл', '% сдачи', 'Ср. попыток до сдачи', 'Ср. время (мин)', 'Всего попыток', 'Индекс сложности'];
-  sheet.getRange(taskStart + 1, 1, taskStart + 1, taskHeaders.length).setValues([taskHeaders])
+  rng_(sheet, taskStart + 1, 1, taskStart + 1, taskHeaders.length).setValues([taskHeaders])
     .setFontWeight('bold').setBackground('#fce8e6');
   if (taskStats.length) {
     var taskRows = taskStats.map(function (t) {
       return [t.title, t.avgScore, t.passPct / 100, t.avgAttempts, t.avgTimeMin, t.totalAttempts, t.difficulty];
     });
-    sheet.getRange(taskStart + 2, 1, taskStart + 2 + taskRows.length - 1, taskHeaders.length).setValues(taskRows);
-    sheet.getRange(taskStart + 2, 3, taskStart + 2 + taskRows.length - 1, 3).setNumberFormat('0%');
+    var taskDataEnd = taskStart + 1 + taskRows.length;
+    rng_(sheet, taskStart + 2, 1, taskDataEnd, taskHeaders.length).setValues(taskRows);
+    rng_(sheet, taskStart + 2, 3, taskDataEnd, 3).setNumberFormat('0%');
   } else {
     sheet.getRange(taskStart + 2, 1).setValue('Нет попыток на листе Attempts').setFontStyle('italic');
   }
@@ -343,7 +351,7 @@ function writeAnalyticsSheet_(ss, overview, taskStats, studentStats) {
   var studStart = taskStart + 2 + Math.max(taskStats.length, 1) + 2;
   sheet.getRange(studStart, 1).setValue('Статистика по ученикам').setFontWeight('bold');
   var studHeaders = ['Ученик', 'Группа', 'Статус', 'Заданий', '% успеха', 'Сдано', 'Попыток', 'Время', 'Ср. балл', 'Последняя отправка'];
-  sheet.getRange(studStart + 1, 1, studStart + 1, studHeaders.length).setValues([studHeaders])
+  rng_(sheet, studStart + 1, 1, studStart + 1, studHeaders.length).setValues([studHeaders])
     .setFontWeight('bold').setBackground('#e6f4ea');
   if (studentStats.length) {
     var studRows = studentStats.map(function (s) {
@@ -358,10 +366,10 @@ function writeAnalyticsSheet_(ss, overview, taskStats, studentStats) {
         s.submittedAt
       ];
     });
-    var studDataRange = sheet.getRange(studStart + 2, 1, studStart + 2 + studRows.length - 1, studHeaders.length);
-    studDataRange.setValues(studRows);
-    sheet.getRange(studStart + 2, 5, studStart + 2 + studRows.length - 1, 5).setNumberFormat('0%');
-    var doneRange = sheet.getRange(studStart + 2, 5, studStart + 2 + studRows.length - 1, 5);
+    var studDataEnd = studStart + 1 + studRows.length;
+    rng_(sheet, studStart + 2, 1, studDataEnd, studHeaders.length).setValues(studRows);
+    rng_(sheet, studStart + 2, 5, studDataEnd, 5).setNumberFormat('0%');
+    var doneRange = rng_(sheet, studStart + 2, 5, studDataEnd, 5);
     sheet.setConditionalFormatRules([
       SpreadsheetApp.newConditionalFormatRule()
         .whenNumberGreaterThanOrEqualTo(1).setBackground('#b7e1cd').setRanges([doneRange]).build(),
@@ -377,8 +385,8 @@ function writeAnalyticsSheet_(ss, overview, taskStats, studentStats) {
 
     var passChart = sheet.newChart()
       .setChartType(Charts.ChartType.COLUMN)
-      .addRange(sheet.getRange(chartDataStart, 1, chartDataEnd, 1))
-      .addRange(sheet.getRange(chartDataStart, 3, chartDataEnd, 3))
+      .addRange(rng_(sheet, chartDataStart, 1, chartDataEnd, 1))
+      .addRange(rng_(sheet, chartDataStart, 3, chartDataEnd, 3))
       .setOption('title', '% сдачи по заданиям')
       .setOption('legend', { position: 'none' })
       .setOption('hAxis', { slantedText: true, slantedTextAngle: 45 })
@@ -391,8 +399,8 @@ function writeAnalyticsSheet_(ss, overview, taskStats, studentStats) {
 
     var scoreChart = sheet.newChart()
       .setChartType(Charts.ChartType.COLUMN)
-      .addRange(sheet.getRange(chartDataStart, 1, chartDataEnd, 1))
-      .addRange(sheet.getRange(chartDataStart, 2, chartDataEnd, 2))
+      .addRange(rng_(sheet, chartDataStart, 1, chartDataEnd, 1))
+      .addRange(rng_(sheet, chartDataStart, 2, chartDataEnd, 2))
       .setOption('title', 'Средний балл по заданиям')
       .setOption('legend', { position: 'none' })
       .setOption('hAxis', { slantedText: true, slantedTextAngle: 45 })
@@ -405,8 +413,8 @@ function writeAnalyticsSheet_(ss, overview, taskStats, studentStats) {
 
     var diffChart = sheet.newChart()
       .setChartType(Charts.ChartType.BAR)
-      .addRange(sheet.getRange(chartDataStart, 1, chartDataEnd, 1))
-      .addRange(sheet.getRange(chartDataStart, 7, chartDataEnd, 7))
+      .addRange(rng_(sheet, chartDataStart, 1, chartDataEnd, 1))
+      .addRange(rng_(sheet, chartDataStart, 7, chartDataEnd, 7))
       .setOption('title', 'Индекс сложности заданий')
       .setOption('legend', { position: 'none' })
       .setOption('colors', ['#ea4335'])
@@ -423,13 +431,13 @@ function writeAnalyticsSheet_(ss, overview, taskStats, studentStats) {
     sheet.getRange(pieRow, 13).setValue('Кол-во');
     var completedN = studentStats.filter(function (s) { return s.completed; }).length;
     var inProgressN = studentStats.length - completedN;
-    sheet.getRange(pieRow + 1, 12, pieRow + 2, 13).setValues([
+    rng_(sheet, pieRow + 1, 12, pieRow + 2, 13).setValues([
       ['Завершили', completedN],
       ['В процессе', inProgressN]
     ]);
     var pieChart = sheet.newChart()
       .setChartType(Charts.ChartType.PIE)
-      .addRange(sheet.getRange(pieRow, 12, pieRow + 2, 13))
+      .addRange(rng_(sheet, pieRow, 12, pieRow + 2, 13))
       .setOption('title', 'Прохождение курса')
       .setOption('colors', ['#34a853', '#fbbc04'])
       .setPosition(18, 16, 0, 0)
@@ -443,8 +451,8 @@ function writeAnalyticsSheet_(ss, overview, taskStats, studentStats) {
       var studChartEnd = studStart + 1 + studentStats.length;
       var successChart = sheet.newChart()
         .setChartType(Charts.ChartType.BAR)
-        .addRange(sheet.getRange(studChartStart, 1, studChartEnd, 1))
-        .addRange(sheet.getRange(studChartStart, 5, studChartEnd, 5))
+        .addRange(rng_(sheet, studChartStart, 1, studChartEnd, 1))
+        .addRange(rng_(sheet, studChartStart, 5, studChartEnd, 5))
         .setOption('title', '% успеха по ученикам')
         .setOption('legend', { position: 'none' })
         .setOption('colors', ['#673ab7'])

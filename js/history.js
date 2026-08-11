@@ -376,13 +376,14 @@ var History = (function () {
 
   function buildExportPayload(meta, tasks) {
     var data = load();
-    var summary = report(tasks);
+    var reportTasks = (typeof ALL_TASKS !== 'undefined') ? ALL_TASKS : tasks;
+    var summary = report(reportTasks);
     var taskById = {};
-    tasks.forEach(function (t) { taskById[t.id] = t; });
+    reportTasks.forEach(function (t) { taskById[t.id] = t; });
 
     var taskScores = {};
     var taskPassed = {};
-    tasks.forEach(function (t) {
+    reportTasks.forEach(function (t) {
       taskScores[t.id] = null;
       taskPassed[t.id] = false;
     });
@@ -427,7 +428,7 @@ var History = (function () {
         finishedAt: meta.finishedAt || null,
         completed: !!meta.completed,
         tasksDone: tasksDone,
-        tasksTotal: tasks.length,
+        tasksTotal: reportTasks.length,
         totalAttempts: data.attempts.length,
         taskScores: taskScores,
         taskPassed: taskPassed,
@@ -435,7 +436,7 @@ var History = (function () {
         growthAreas: summary.growthAreas,
         firstTryStrengths: summary.firstTryStrengths,
         drafts: loadDrafts(),
-        trainerVersion: 'v1'
+        trainerVersion: (typeof ALL_TASKS !== 'undefined') ? 'v1-join' : 'v1'
       },
       attempts: attempts
     };
