@@ -69,7 +69,7 @@ function doPost(e) {
             a.taskTitle || '',
             a.ts || '',
             Number(a.score || 0),
-            a.pass === true || a.pass === 'true' ? 'TRUE' : 'FALSE',
+            a.pass === true || a.pass === 'true' ? 'TRUE' : (a.forced === true || a.forced === 'true' ? 'FORCED' : 'FALSE'),
             Number(a.codeLen || (a.code ? a.code.length : 0)),
             truncateCode_(a.code || '', 49000),
             JSON.stringify(a.criteria || []),
@@ -266,7 +266,9 @@ function buildStudentStats_(sessions) {
     var avgScore = scoreVals.length
       ? Math.round(scoreVals.reduce(function (a, b) { return a + b; }, 0) / scoreVals.length)
       : 0;
-    var passedCount = Object.keys(passed).filter(function (k) { return passed[k]; }).length;
+    var passedCount = Object.keys(passed).filter(function (k) {
+      return passed[k] === true || passed[k] === 'TRUE';
+    }).length;
     var successPct = total ? Math.round(done / total * 100) : 0;
 
     return {
